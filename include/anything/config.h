@@ -5,7 +5,7 @@
 
 #include "anything/identity.h"
 
-#define ANYTHING_VERSION "v0.1.1"
+#define ANYTHING_VERSION "v0.1.2"
 #define ANYTHING_MAX_PATH_RULES 16
 #define ANYTHING_MAX_PATH_LEN 256
 #define ANYTHING_MAX_ERROR_LEN 256
@@ -36,6 +36,7 @@ typedef struct anything_config {
 
 void anything_config_init(anything_config *config);
 int anything_config_load(const char *path, anything_config *config, char *error, size_t error_len);
+int anything_config_load_with_options(const char *path, anything_config *config, int allow_dev_insecure_admin, char *error, size_t error_len);
 int anything_config_validate(const anything_config *config, char *error, size_t error_len);
 int anything_config_identity_is_admin(const anything_config *config, anything_identity identity);
 

@@ -1,3 +1,7 @@
+# INSECURE DEVELOPMENT ONLY.
+# This config disables admin allowlist enforcement so a local smoke test can
+# run without a dedicated admin UID/GID. Never use this file for deployment.
+
 [daemon]
 tool_socket_path = "/tmp/anythingd-tool.sock"
 admin_socket_path = "/tmp/anythingd-admin.sock"
@@ -19,9 +23,9 @@ approval_ttl_seconds = 300
 read_timeout_ms = 2000
 
 [admin]
-allowed_uids = [1000]
+allowed_uids = []
 allowed_gids = []
-require_admin_allowlist = true
+require_admin_allowlist = false
 
 [[paths]]
 path = "/tmp/anything-agent-readable"

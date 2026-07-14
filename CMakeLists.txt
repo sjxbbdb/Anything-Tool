@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AnythingTool VERSION 0.1.1 LANGUAGES C)
+project(AnythingTool VERSION 0.1.2 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -26,6 +26,11 @@ add_test(
 add_test(
   NAME v0_1_1_security_contract
   COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_SOURCE_DIR} python ${CMAKE_SOURCE_DIR}/tests/security/test_v0_1_1_security_contract.py
+)
+
+add_test(
+  NAME v0_1_2_security_behavior
+  COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_SOURCE_DIR} python ${CMAKE_SOURCE_DIR}/tests/security/test_v0_1_2_security_behavior.py
 )
 
 if(NOT UNIX)

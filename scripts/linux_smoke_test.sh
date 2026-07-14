@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD="${ROOT}/build-linux-smoke"
-CONFIG="${ROOT}/config/anythingd.example.toml"
+CONFIG="${ROOT}/config/anythingd.dev-insecure.toml"
 TOOL_SOCKET="/tmp/anythingd-tool.sock"
 ADMIN_SOCKET="/tmp/anythingd-admin.sock"
 AUDIT_LOG="/tmp/anything-audit.jsonl"
@@ -13,7 +13,7 @@ cmake --build "${BUILD}" --target anythingd anythingctl
 ctest --test-dir "${BUILD}" --output-on-failure
 
 rm -f "${TOOL_SOCKET}" "${ADMIN_SOCKET}" "${AUDIT_LOG}"
-"${BUILD}/anythingd" "${CONFIG}" &
+"${BUILD}/anythingd" --dev-insecure-admin "${CONFIG}" &
 DAEMON_PID=$!
 trap 'kill "${DAEMON_PID}" 2>/dev/null || true; wait "${DAEMON_PID}" 2>/dev/null || true' EXIT
 

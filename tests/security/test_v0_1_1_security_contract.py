@@ -9,9 +9,9 @@ def text(path: str) -> str:
     return file_path.read_text(encoding="utf-8", errors="ignore")
 
 
-def test_version_is_v0_1_1() -> None:
-    assert "VERSION 0.1.1" in text("CMakeLists.txt")
-    assert '#define ANYTHING_VERSION "v0.1.1"' in text("include/anything/config.h")
+def test_version_is_current_security_release() -> None:
+    assert "VERSION 0.1.2" in text("CMakeLists.txt")
+    assert '#define ANYTHING_VERSION "v0.1.2"' in text("include/anything/config.h")
 
 
 def test_json_helper_is_used_by_output_modules() -> None:
@@ -65,9 +65,9 @@ def test_admin_authorization_contract_exists() -> None:
 def test_config_example_contains_admin_allowlist() -> None:
     config = text("config/anythingd.example.toml")
     assert "[admin]" in config
-    assert "allowed_uids = []" in config
+    assert "allowed_uids = [1000]" in config
     assert "allowed_gids = []" in config
-    assert "require_admin_allowlist = false" in config
+    assert "require_admin_allowlist = true" in config
 
 
 def test_transport_read_timeout_contract_exists() -> None:
@@ -98,7 +98,7 @@ def test_linux_smoke_validates_json() -> None:
 
 if __name__ == "__main__":
     for test in [
-        test_version_is_v0_1_1,
+        test_version_is_current_security_release,
         test_json_helper_is_used_by_output_modules,
         test_json_escape_handles_required_characters,
         test_audit_fail_closed_contract_exists,
@@ -111,4 +111,4 @@ if __name__ == "__main__":
         test_linux_smoke_validates_json,
     ]:
         test()
-    print("v0.1.1 security contract tests passed")
+    print("v0.1.2 security contract tests passed")

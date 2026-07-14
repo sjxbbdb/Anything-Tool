@@ -3,10 +3,13 @@
 #include "anything/json.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 static const char *k_audit_contract_events[] = {
     "request_received",
@@ -46,13 +49,41 @@ static int audit_path_under(const char *path, const char *root) {
   return path[root_len] == '\0' || path[root_len] == '/';
 }
 
+static int canonical_path_under(const char *path, const char *root) {
+  char real_path[ANYTHING_MAX_PATH_LEN];
+  char real_root[ANYTHING_MAX_PATH_LEN];
+  if (realpath(path, real_path) == NULL || realpath(root, real_root) == NULL) {
+    return audit_path_under(path, root);
+  }
+  return audit_path_under(real_path, real_root);
+}
+
+static int open_audit_fd(const char *path, char *error, size_t error_len) {
+  int fd = open(path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+  if (fd < 0) {
+    if (errno == ELOOP) {
+      snprintf(error, error_len, "audit log must not be a symlink");
+    } else {
+      snprintf(error, error_len, "audit log is not writable");
+    }
+    return -1;
+  }
+  struct stat st;
+  if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+    snprintf(error, error_len, "audit log must be a regular file");
+    close(fd);
+    return -1;
+  }
+  return fd;
+}
+
 int anything_audit_validate_startup(const anything_config *config, char *error, size_t error_len) {
   if (config->audit_log_path[0] == '\0') {
     snprintf(error, error_len, "audit log path is required");
     return -1;
   }
   for (size_t i = 0; i < config->path_count; i++) {
-    if (config->paths[i].writable && audit_path_under(config->audit_log_path, config->paths[i].path)) {
+    if (config->paths[i].writable && canonical_path_under(config->audit_log_path, config->paths[i].path)) {
       snprintf(error, error_len, "audit log path is inside an agent writable allowlist");
       return -1;
     }
@@ -72,24 +103,19 @@ int anything_audit_validate_startup(const anything_config *config, char *error, 
     return -1;
   }
 
-  FILE *file = fopen(config->audit_log_path, "a");
-  if (file == NULL) {
-    snprintf(error, error_len, "audit log is not writable");
+  int fd = open_audit_fd(config->audit_log_path, error, error_len);
+  if (fd < 0) {
     return -1;
   }
-  int failed = ferror(file);
-  fclose(file);
-  if (failed) {
-    snprintf(error, error_len, "audit log validation failed");
-    return -1;
-  }
+  close(fd);
   return 0;
 }
 
 int anything_audit_write_event(const anything_config *config, const char *event, const char *request_id, const char *session_id, anything_identity caller, const anything_identity *approver, const char *method, const char *risk, const char *decision, const char *error_kind, const char *params_summary, long duration_ms) {
   (void)is_known_event(event);
-  FILE *file = fopen(config->audit_log_path, "a");
-  if (file == NULL) {
+  char audit_error[ANYTHING_AUDIT_MAX_ERROR];
+  int fd = open_audit_fd(config->audit_log_path, audit_error, sizeof(audit_error));
+  if (fd < 0) {
     return -1;
   }
 
@@ -110,25 +136,26 @@ int anything_audit_write_event(const anything_config *config, const char *event,
       anything_json_escape_string(decision != NULL ? decision : "", escaped_decision, sizeof(escaped_decision)) != 0 ||
       anything_json_escape_string(error_kind != NULL ? error_kind : "", escaped_error_kind, sizeof(escaped_error_kind)) != 0 ||
       anything_json_escape_string(params_summary != NULL ? params_summary : "", escaped_params_summary, sizeof(escaped_params_summary)) != 0) {
-    fclose(file);
+    close(fd);
     return -1;
   }
   timestamp_utc(ts, sizeof(ts));
-  fprintf(file,
-          "{\"timestamp\":\"%s\",\"event\":\"%s\",\"request_id\":\"%s\",\"session_id\":\"%s\","
-          "\"caller\":{\"uid\":%ld,\"gid\":%ld,\"pid\":%ld},",
-          ts, escaped_event, escaped_request_id, escaped_session_id,
-          (long)caller.uid, (long)caller.gid, (long)caller.pid);
+  int failed = dprintf(fd,
+                       "{\"timestamp\":\"%s\",\"event\":\"%s\",\"request_id\":\"%s\",\"session_id\":\"%s\","
+                       "\"caller\":{\"uid\":%ld,\"gid\":%ld,\"pid\":%ld},",
+                       ts, escaped_event, escaped_request_id, escaped_session_id,
+                       (long)caller.uid, (long)caller.gid, (long)caller.pid) < 0;
   if (approver != NULL) {
-    fprintf(file, "\"approver\":{\"uid\":%ld,\"gid\":%ld,\"pid\":%ld},", (long)approver->uid, (long)approver->gid, (long)approver->pid);
+    failed = failed || dprintf(fd, "\"approver\":{\"uid\":%ld,\"gid\":%ld,\"pid\":%ld},", (long)approver->uid, (long)approver->gid, (long)approver->pid) < 0;
   }
-  fprintf(file,
-          "\"method\":\"%s\",\"risk\":\"%s\",\"decision\":\"%s\",\"error_kind\":\"%s\","
-          "\"duration_ms\":%ld,\"params_summary\":\"%s\"}\n",
-          escaped_method, escaped_risk, escaped_decision,
-          escaped_error_kind, duration_ms, escaped_params_summary);
+  failed = failed || dprintf(fd,
+                             "\"method\":\"%s\",\"risk\":\"%s\",\"decision\":\"%s\",\"error_kind\":\"%s\","
+                             "\"duration_ms\":%ld,\"params_summary\":\"%s\"}\n",
+                             escaped_method, escaped_risk, escaped_decision,
+                             escaped_error_kind, duration_ms, escaped_params_summary) < 0;
 
-  int failed = ferror(file);
-  fclose(file);
+  if (close(fd) != 0) {
+    failed = 1;
+  }
   return failed ? -1 : 0;
 }

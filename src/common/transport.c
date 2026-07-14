@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 int anything_transport_listen(const char *path, int mode, char *error, size_t error_len) {
@@ -64,9 +65,23 @@ int anything_transport_set_read_timeout(int fd, int timeout_ms, char *error, siz
   return 0;
 }
 
-int anything_transport_read_request(int fd, char *buffer, size_t max_bytes, size_t *out_len, char *error, size_t error_len) {
+static long elapsed_ms_since(const struct timespec *start) {
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  long sec = (long)(now.tv_sec - start->tv_sec);
+  long nsec = (long)(now.tv_nsec - start->tv_nsec);
+  return sec * 1000L + nsec / 1000000L;
+}
+
+int anything_transport_read_request(int fd, char *buffer, size_t max_bytes, int deadline_ms, size_t *out_len, char *error, size_t error_len) {
+  struct timespec started;
+  clock_gettime(CLOCK_MONOTONIC, &started);
   size_t total = 0;
   while (total < max_bytes) {
+    if (elapsed_ms_since(&started) > deadline_ms) {
+      snprintf(error, error_len, "request deadline exceeded");
+      return -1;
+    }
     ssize_t n = read(fd, buffer + total, max_bytes - total);
     if (n < 0) {
       if (errno == EINTR) {
@@ -82,6 +97,10 @@ int anything_transport_read_request(int fd, char *buffer, size_t max_bytes, size
     if (memchr(buffer, '\n', total) != NULL) {
       break;
     }
+  }
+  if (elapsed_ms_since(&started) > deadline_ms) {
+    snprintf(error, error_len, "request deadline exceeded");
+    return -1;
   }
   if (total >= max_bytes) {
     snprintf(error, error_len, "request exceeds configured max_request_bytes");

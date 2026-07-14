@@ -262,7 +262,7 @@ static void accept_one(daemon_state *state, int listen_fd, anything_socket_plane
     return;
   }
   size_t body_len = 0;
-  if (anything_transport_read_request(fd, buffer, state->config.max_request_bytes, &body_len, error, sizeof(error)) != 0) {
+  if (anything_transport_read_request(fd, buffer, state->config.max_request_bytes, state->config.read_timeout_ms, &body_len, error, sizeof(error)) != 0) {
     send_invalid(fd, "null", "resource_limit", error);
     free(buffer);
     close(fd);
@@ -279,10 +279,21 @@ static void accept_one(daemon_state *state, int listen_fd, anything_socket_plane
 }
 
 int main(int argc, char **argv) {
-  const char *config_path = argc > 1 ? argv[1] : "config/anythingd.example.toml";
+  const char *config_path = "config/anythingd.example.toml";
+  int allow_dev_insecure_admin = 0;
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--dev-insecure-admin") == 0) {
+      allow_dev_insecure_admin = 1;
+    } else {
+      config_path = argv[i];
+    }
+  }
   daemon_state state;
   char error[ANYTHING_MAX_ERROR_LEN];
-  if (anything_config_load(config_path, &state.config, error, sizeof(error)) != 0) {
+  if (allow_dev_insecure_admin) {
+    fprintf(stderr, "WARNING: --dev-insecure-admin disables admin allowlist enforcement for development only\n");
+  }
+  if (anything_config_load_with_options(config_path, &state.config, allow_dev_insecure_admin, error, sizeof(error)) != 0) {
     fprintf(stderr, "anythingd config error: %s\n", error);
     return 2;
   }

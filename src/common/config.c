@@ -95,10 +95,10 @@ void anything_config_init(anything_config *config) {
   config->max_output_bytes = 1048576;
   config->approval_ttl_seconds = 300;
   config->read_timeout_ms = 2000;
-  config->require_admin_allowlist = 0;
+  config->require_admin_allowlist = 1;
 }
 
-int anything_config_validate(const anything_config *config, char *error, size_t error_len) {
+static int anything_config_validate_with_options(const anything_config *config, int allow_dev_insecure_admin, char *error, size_t error_len) {
   if (config->tool_socket_path[0] == '\0') {
     set_error(error, error_len, "daemon.tool_socket_path is required");
     return -1;
@@ -123,6 +123,10 @@ int anything_config_validate(const anything_config *config, char *error, size_t 
     set_error(error, error_len, "limits.read_timeout_ms must be 1..60000");
     return -1;
   }
+  if (!config->require_admin_allowlist && !allow_dev_insecure_admin) {
+    set_error(error, error_len, "insecure admin mode requires --dev-insecure-admin");
+    return -1;
+  }
   if (config->require_admin_allowlist && config->admin_allowed_uid_count == 0 && config->admin_allowed_gid_count == 0) {
     set_error(error, error_len, "admin allowlist is required but empty");
     return -1;
@@ -136,7 +140,11 @@ int anything_config_validate(const anything_config *config, char *error, size_t 
   return 0;
 }
 
-int anything_config_load(const char *path, anything_config *config, char *error, size_t error_len) {
+int anything_config_validate(const anything_config *config, char *error, size_t error_len) {
+  return anything_config_validate_with_options(config, 0, error, error_len);
+}
+
+int anything_config_load_with_options(const char *path, anything_config *config, int allow_dev_insecure_admin, char *error, size_t error_len) {
   anything_config_init(config);
   FILE *file = fopen(path, "r");
   if (file == NULL) {
@@ -234,7 +242,11 @@ int anything_config_load(const char *path, anything_config *config, char *error,
   }
 
   fclose(file);
-  return anything_config_validate(config, error, error_len);
+  return anything_config_validate_with_options(config, allow_dev_insecure_admin, error, error_len);
+}
+
+int anything_config_load(const char *path, anything_config *config, char *error, size_t error_len) {
+  return anything_config_load_with_options(path, config, 0, error, error_len);
 }
 
 int anything_config_identity_is_admin(const anything_config *config, anything_identity identity) {

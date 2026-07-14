@@ -1,0 +1,22 @@
+[daemon]
+tool_socket_path = "/tmp/anythingd-tool.sock"
+admin_socket_path = "/tmp/anythingd-admin.sock"
+audit_log = "/tmp/anything-audit.jsonl"
+
+[capabilities]
+sys_read = true
+fs_read = false
+fs_write = false
+fs_delete = false
+proc_spawn = false
+proc_kill = false
+net_http = false
+
+[limits]
+max_request_bytes = 1048576
+max_output_bytes = 1048576
+approval_ttl_seconds = 300
+
+[[paths]]
+path = "/tmp/anything-agent-readable"
+mode = "read-only"

@@ -104,7 +104,13 @@ Linux 完整验证入口：
 
 ## GitHub 推送状态
 
-当前 `git remote -v` 无输出，仓库没有 `origin`。未使用 GitHub API key，未执行推送。待确认 GitHub 仓库 URL 后可配置 remote 并推送。
+2026-07-14 09:45:12 UTC+0800 已创建公开仓库并推送：
+
+- GitHub 仓库：`https://github.com/sjxbbdb/Anything-Tool`
+- Git remote：`origin`
+- 推送分支：`master`
+- 首次推送提交：`c87d0e0 Implement Linux agent tool layer v0.1.0 skeleton`
+- API key 仅作为本地临时认证材料使用，未写入源码、提交信息、日志正文或终端输出。
 
 ## 署名
 

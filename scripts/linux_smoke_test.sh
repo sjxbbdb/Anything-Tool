@@ -22,18 +22,38 @@ for _ in $(seq 1 20); do
   sleep 0.1
 done
 
+json_check() {
+  python - "$1" <<'PY'
+import json, sys
+json.loads(sys.argv[1])
+PY
+}
+
 REQUEST_OUTPUT="$("${BUILD}/anythingctl" --socket "${TOOL_SOCKET}" sys-info smoke-session)"
 echo "${REQUEST_OUTPUT}"
+json_check "${REQUEST_OUTPUT}"
 grep -q "approval_required" <<<"${REQUEST_OUTPUT}"
 REQUEST_ID="$(sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p' <<<"${REQUEST_OUTPUT}")"
 test -n "${REQUEST_ID}"
 
-"${BUILD}/anythingctl" --admin-socket "${ADMIN_SOCKET}" pending
-"${BUILD}/anythingctl" --admin-socket "${ADMIN_SOCKET}" approve "${REQUEST_ID}"
-"${BUILD}/anythingctl" --admin-socket "${ADMIN_SOCKET}" execute "${REQUEST_ID}" | grep -q '"hostname"'
+PENDING_OUTPUT="$("${BUILD}/anythingctl" --admin-socket "${ADMIN_SOCKET}" pending)"
+json_check "${PENDING_OUTPUT}"
+APPROVE_OUTPUT="$("${BUILD}/anythingctl" --admin-socket "${ADMIN_SOCKET}" approve "${REQUEST_ID}")"
+json_check "${APPROVE_OUTPUT}"
+EXECUTE_OUTPUT="$("${BUILD}/anythingctl" --admin-socket "${ADMIN_SOCKET}" execute "${REQUEST_ID}")"
+json_check "${EXECUTE_OUTPUT}"
+grep -q '"hostname"' <<<"${EXECUTE_OUTPUT}"
 
 grep -q "request_received" "${AUDIT_LOG}"
 grep -q "approval_granted" "${AUDIT_LOG}"
 grep -q "execution_finished" "${AUDIT_LOG}"
 
-echo "anything v0.1.0 smoke test passed"
+python - "${AUDIT_LOG}" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as fh:
+    for line in fh:
+        json.loads(line)
+print("audit json lines valid")
+PY
+
+echo "anything v0.1.1 smoke test passed"

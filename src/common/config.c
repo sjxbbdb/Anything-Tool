@@ -37,6 +37,43 @@ static int parse_quoted(const char *value, char *out, size_t out_len) {
   return 0;
 }
 
+static int parse_long_array(const char *value, long *out, size_t max_count, size_t *out_count) {
+  const char *p = strchr(value, '[');
+  if (p == NULL) {
+    return -1;
+  }
+  p++;
+  *out_count = 0;
+  while (*p != '\0') {
+    p = trim((char *)p);
+    if (*p == ']') {
+      return 0;
+    }
+    if (*out_count >= max_count) {
+      return -1;
+    }
+    char *end = NULL;
+    long parsed = strtol(p, &end, 10);
+    if (end == p) {
+      return -1;
+    }
+    out[(*out_count)++] = parsed;
+    p = end;
+    while (isspace((unsigned char)*p)) {
+      p++;
+    }
+    if (*p == ',') {
+      p++;
+      continue;
+    }
+    if (*p == ']') {
+      return 0;
+    }
+    return -1;
+  }
+  return -1;
+}
+
 static int path_is_under(const char *path, const char *root) {
   size_t root_len = strlen(root);
   if (root_len == 0) {
@@ -57,6 +94,8 @@ void anything_config_init(anything_config *config) {
   config->max_request_bytes = 1048576;
   config->max_output_bytes = 1048576;
   config->approval_ttl_seconds = 300;
+  config->read_timeout_ms = 2000;
+  config->require_admin_allowlist = 0;
 }
 
 int anything_config_validate(const anything_config *config, char *error, size_t error_len) {
@@ -78,6 +117,14 @@ int anything_config_validate(const anything_config *config, char *error, size_t 
   }
   if (config->max_request_bytes == 0 || config->max_request_bytes > 1048576) {
     set_error(error, error_len, "limits.max_request_bytes must be 1..1048576");
+    return -1;
+  }
+  if (config->read_timeout_ms <= 0 || config->read_timeout_ms > 60000) {
+    set_error(error, error_len, "limits.read_timeout_ms must be 1..60000");
+    return -1;
+  }
+  if (config->require_admin_allowlist && config->admin_allowed_uid_count == 0 && config->admin_allowed_gid_count == 0) {
+    set_error(error, error_len, "admin allowlist is required but empty");
     return -1;
   }
   for (size_t i = 0; i < config->path_count; i++) {
@@ -153,6 +200,22 @@ int anything_config_load(const char *path, anything_config *config, char *error,
       config->max_output_bytes = (size_t)strtoull(value, NULL, 10);
     } else if (strcmp(key, "approval_ttl_seconds") == 0) {
       config->approval_ttl_seconds = atoi(value);
+    } else if (strcmp(key, "read_timeout_ms") == 0) {
+      config->read_timeout_ms = atoi(value);
+    } else if (strcmp(key, "allowed_uids") == 0) {
+      if (parse_long_array(value, config->admin_allowed_uids, ANYTHING_MAX_ADMIN_IDS, &config->admin_allowed_uid_count) != 0) {
+        fclose(file);
+        set_error(error, error_len, "invalid admin allowed_uids");
+        return -1;
+      }
+    } else if (strcmp(key, "allowed_gids") == 0) {
+      if (parse_long_array(value, config->admin_allowed_gids, ANYTHING_MAX_ADMIN_IDS, &config->admin_allowed_gid_count) != 0) {
+        fclose(file);
+        set_error(error, error_len, "invalid admin allowed_gids");
+        return -1;
+      }
+    } else if (strcmp(key, "require_admin_allowlist") == 0) {
+      config->require_admin_allowlist = strncmp(value, "true", 4) == 0;
     } else if (in_path_rule && config->path_count > 0 && strcmp(key, "path") == 0) {
       if (parse_quoted(value, config->paths[config->path_count - 1].path, sizeof(config->paths[0].path)) != 0) {
         fclose(file);
@@ -172,4 +235,21 @@ int anything_config_load(const char *path, anything_config *config, char *error,
 
   fclose(file);
   return anything_config_validate(config, error, error_len);
+}
+
+int anything_config_identity_is_admin(const anything_config *config, anything_identity identity) {
+  if (!config->require_admin_allowlist) {
+    return 1;
+  }
+  for (size_t i = 0; i < config->admin_allowed_uid_count; i++) {
+    if (config->admin_allowed_uids[i] == (long)identity.uid) {
+      return 1;
+    }
+  }
+  for (size_t i = 0; i < config->admin_allowed_gid_count; i++) {
+    if (config->admin_allowed_gids[i] == (long)identity.gid) {
+      return 1;
+    }
+  }
+  return 0;
 }

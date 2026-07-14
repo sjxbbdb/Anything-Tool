@@ -7,6 +7,7 @@
 
 #define ANYTHING_AUDIT_MAX_ERROR 128
 
+int anything_audit_validate_startup(const anything_config *config, char *error, size_t error_len);
 int anything_audit_write_event(const anything_config *config, const char *event, const char *request_id, const char *session_id, anything_identity caller, const anything_identity *approver, const char *method, const char *risk, const char *decision, const char *error_kind, const char *params_summary, long duration_ms);
 
 #endif

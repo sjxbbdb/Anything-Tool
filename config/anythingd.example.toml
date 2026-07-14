@@ -16,6 +16,12 @@ net_http = false
 max_request_bytes = 1048576
 max_output_bytes = 1048576
 approval_ttl_seconds = 300
+read_timeout_ms = 2000
+
+[admin]
+allowed_uids = []
+allowed_gids = []
+require_admin_allowlist = false
 
 [[paths]]
 path = "/tmp/anything-agent-readable"

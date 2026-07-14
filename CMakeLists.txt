@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AnythingTool VERSION 0.1.0 LANGUAGES C)
+project(AnythingTool VERSION 0.1.1 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -23,6 +23,11 @@ add_test(
   COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_SOURCE_DIR} python ${CMAKE_SOURCE_DIR}/tests/contract/test_v0_1_0_contract.py
 )
 
+add_test(
+  NAME v0_1_1_security_contract
+  COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=${CMAKE_SOURCE_DIR} python ${CMAKE_SOURCE_DIR}/tests/security/test_v0_1_1_security_contract.py
+)
+
 if(NOT UNIX)
   message(WARNING "anythingd and anythingctl are Linux/Unix targets; this host can run contract tests only.")
   add_custom_target(anythingd COMMAND ${CMAKE_COMMAND} -E echo "anythingd is Linux-only in v0.1.0")
@@ -34,6 +39,7 @@ add_library(anything_common
   src/common/approval.c
   src/common/audit.c
   src/common/config.c
+  src/common/json.c
   src/common/policy.c
   src/common/rpc.c
   src/common/transport.c

@@ -1,6 +1,7 @@
 #include "anything/approval.h"
 #include "anything/audit.h"
 #include "anything/config.h"
+#include "anything/json.h"
 #include "anything/policy.h"
 #include "anything/rpc.h"
 #include "anything/sys_info.h"
@@ -32,6 +33,16 @@ static void send_invalid(int fd, const char *id, const char *kind, const char *m
   anything_transport_write_response(fd, response);
 }
 
+static int checked_audit(const anything_config *config, const char *event, const char *request_id, const char *session_id, anything_identity caller, const anything_identity *approver, const char *method, const char *risk, const char *decision, const char *error_kind, const char *params_summary, long duration_ms, int fd, const char *rpc_id) {
+  if (anything_audit_write_event(config, event, request_id, session_id, caller, approver, method, risk, decision, error_kind, params_summary, duration_ms) == 0) {
+    return 0;
+  }
+  char response[ANYTHING_RPC_MAX_RESPONSE];
+  anything_rpc_error(rpc_id, -32050, "audit_failed", "audit write failed", "", response, sizeof(response));
+  anything_transport_write_response(fd, response);
+  return -1;
+}
+
 static void handle_tool_request(daemon_state *state, int fd, anything_identity caller, const char *body, size_t body_len) {
   char error[ANYTHING_MAX_ERROR_LEN];
   char response[ANYTHING_RPC_MAX_RESPONSE];
@@ -41,9 +52,13 @@ static void handle_tool_request(daemon_state *state, int fd, anything_identity c
     return;
   }
 
-  anything_audit_write_event(&state->config, "request_received", "", request.session_id, caller, NULL, request.method, "", "received", "", "bounded request", 0);
+  if (checked_audit(&state->config, "request_received", "", request.session_id, caller, NULL, request.method, "", "received", "", "bounded request", 0, fd, request.id) != 0) {
+    return;
+  }
   if (strncmp(request.method, "approval.", 9) == 0) {
-    anything_audit_write_event(&state->config, "preflight_denied", "", request.session_id, caller, NULL, request.method, "denied", "deny", "control_plane_denied", "agent tool socket cannot access approval methods", 0);
+    if (checked_audit(&state->config, "preflight_denied", "", request.session_id, caller, NULL, request.method, "denied", "deny", "control_plane_denied", "agent tool socket cannot access approval methods", 0, fd, request.id) != 0) {
+      return;
+    }
     anything_rpc_error(request.id, -32040, "control_plane_denied", "approval methods require admin socket", "", response, sizeof(response));
     anything_transport_write_response(fd, response);
     return;
@@ -52,7 +67,9 @@ static void handle_tool_request(daemon_state *state, int fd, anything_identity c
   anything_policy_result policy;
   anything_policy_preflight(&state->config, &request, caller, &policy);
   if (policy.decision == ANYTHING_POLICY_DENY) {
-    anything_audit_write_event(&state->config, "preflight_denied", "", request.session_id, caller, NULL, request.method, policy.risk, "deny", policy.reason, policy.summary, 0);
+    if (checked_audit(&state->config, "preflight_denied", "", request.session_id, caller, NULL, request.method, policy.risk, "deny", policy.reason, policy.summary, 0, fd, request.id) != 0) {
+      return;
+    }
     anything_rpc_error(request.id, -32020, policy.reason, "policy denied", "", response, sizeof(response));
     anything_transport_write_response(fd, response);
     return;
@@ -71,10 +88,22 @@ static void handle_tool_request(daemon_state *state, int fd, anything_identity c
     return;
   }
 
-  char data[512];
+  char escaped_request_id[128];
+  char escaped_risk[64];
+  char escaped_summary[512];
+  if (anything_json_escape_string(pending->request_id, escaped_request_id, sizeof(escaped_request_id)) != 0 ||
+      anything_json_escape_string(pending->risk, escaped_risk, sizeof(escaped_risk)) != 0 ||
+      anything_json_escape_string(pending->summary, escaped_summary, sizeof(escaped_summary)) != 0) {
+    anything_rpc_error(request.id, -32000, "resource_limit", "approval response too large", "", response, sizeof(response));
+    anything_transport_write_response(fd, response);
+    return;
+  }
+  char data[768];
   snprintf(data, sizeof(data), ",\"request_id\":\"%s\",\"risk\":\"%s\",\"summary\":\"%s\",\"expires_at\":%ld",
-           pending->request_id, pending->risk, pending->summary, (long)pending->expires_at);
-  anything_audit_write_event(&state->config, "approval_required", pending->request_id, pending->session_id, caller, NULL, pending->method, pending->risk, "approval_required", "", pending->summary, 0);
+           escaped_request_id, escaped_risk, escaped_summary, (long)pending->expires_at);
+  if (checked_audit(&state->config, "approval_required", pending->request_id, pending->session_id, caller, NULL, pending->method, pending->risk, "approval_required", "", pending->summary, 0, fd, request.id) != 0) {
+    return;
+  }
   anything_rpc_error(request.id, -32010, "approval_required", "approval required", data, response, sizeof(response));
   anything_transport_write_response(fd, response);
 }
@@ -119,18 +148,24 @@ static void handle_admin_execute(daemon_state *state, int fd, anything_identity 
     return;
   }
 
-  anything_audit_write_event(&state->config, "execution_started", pending->request_id, pending->session_id, pending->requester, &admin, pending->method, pending->risk, "started", "", pending->summary, 0);
+  if (checked_audit(&state->config, "execution_started", pending->request_id, pending->session_id, pending->requester, &admin, pending->method, pending->risk, "started", "", pending->summary, 0, fd, request->id) != 0) {
+    return;
+  }
   char result[2048];
   char sys_error[128];
   if (anything_sys_info_json(result, sizeof(result), sys_error, sizeof(sys_error)) != 0) {
-    anything_audit_write_event(&state->config, "execution_failed", pending->request_id, pending->session_id, pending->requester, &admin, pending->method, pending->risk, "failed", "execution_failed", sys_error, 0);
+    if (checked_audit(&state->config, "execution_failed", pending->request_id, pending->session_id, pending->requester, &admin, pending->method, pending->risk, "failed", "execution_failed", sys_error, 0, fd, request->id) != 0) {
+      return;
+    }
     anything_rpc_error(request->id, -32030, "execution_failed", sys_error, "", response, sizeof(response));
     anything_transport_write_response(fd, response);
     return;
   }
 
   pending->status = ANYTHING_APPROVAL_EXECUTED;
-  anything_audit_write_event(&state->config, "execution_finished", pending->request_id, pending->session_id, pending->requester, &admin, pending->method, pending->risk, "finished", "", pending->summary, 0);
+  if (checked_audit(&state->config, "execution_finished", pending->request_id, pending->session_id, pending->requester, &admin, pending->method, pending->risk, "finished", "", pending->summary, 0, fd, request->id) != 0) {
+    return;
+  }
   anything_rpc_result(request->id, result, response, sizeof(response));
   anything_transport_write_response(fd, response);
 }
@@ -141,6 +176,15 @@ static void handle_admin_request(daemon_state *state, int fd, anything_identity 
   anything_rpc_request request;
   if (anything_rpc_parse(body, body_len, &request, error, sizeof(error)) != 0) {
     send_invalid(fd, "null", "invalid_request", error);
+    return;
+  }
+
+  if (!anything_config_identity_is_admin(&state->config, admin)) {
+    if (checked_audit(&state->config, "preflight_denied", "", request.session_id, admin, NULL, request.method, "denied", "deny", "control_plane_denied", "admin caller is not in allowlist", 0, fd, request.id) != 0) {
+      return;
+    }
+    anything_rpc_error(request.id, -32040, "control_plane_denied", "admin caller is not authorized", "", response, sizeof(response));
+    anything_transport_write_response(fd, response);
     return;
   }
 
@@ -172,14 +216,18 @@ static void handle_admin_request(daemon_state *state, int fd, anything_identity 
     if (anything_approval_grant(pending, admin, error_kind, sizeof(error_kind)) != 0) {
       anything_rpc_error(request.id, -32012, error_kind, "approval denied", "", response, sizeof(response));
     } else {
-      anything_audit_write_event(&state->config, "approval_granted", pending->request_id, pending->session_id, pending->requester, &admin, pending->method, pending->risk, "granted", "", pending->summary, 0);
+      if (checked_audit(&state->config, "approval_granted", pending->request_id, pending->session_id, pending->requester, &admin, pending->method, pending->risk, "granted", "", pending->summary, 0, fd, request.id) != 0) {
+        return;
+      }
       anything_rpc_result(request.id, "{\"approved\":true}", response, sizeof(response));
     }
   } else if (strcmp(request.method, "approval.reject") == 0) {
     if (anything_approval_reject(pending, admin, error_kind, sizeof(error_kind)) != 0) {
       anything_rpc_error(request.id, -32013, error_kind, "approval rejection failed", "", response, sizeof(response));
     } else {
-      anything_audit_write_event(&state->config, "approval_rejected", pending->request_id, pending->session_id, pending->requester, &admin, pending->method, pending->risk, "rejected", "", pending->summary, 0);
+      if (checked_audit(&state->config, "approval_rejected", pending->request_id, pending->session_id, pending->requester, &admin, pending->method, pending->risk, "rejected", "", pending->summary, 0, fd, request.id) != 0) {
+        return;
+      }
       anything_rpc_result(request.id, "{\"rejected\":true}", response, sizeof(response));
     }
   } else {
@@ -198,6 +246,11 @@ static void accept_one(daemon_state *state, int listen_fd, anything_socket_plane
   anything_identity peer;
   if (anything_transport_peer_identity(fd, &peer, error, sizeof(error)) != 0) {
     send_invalid(fd, "null", "control_plane_denied", error);
+    close(fd);
+    return;
+  }
+  if (anything_transport_set_read_timeout(fd, state->config.read_timeout_ms, error, sizeof(error)) != 0) {
+    send_invalid(fd, "null", "resource_limit", error);
     close(fd);
     return;
   }
@@ -231,6 +284,10 @@ int main(int argc, char **argv) {
   char error[ANYTHING_MAX_ERROR_LEN];
   if (anything_config_load(config_path, &state.config, error, sizeof(error)) != 0) {
     fprintf(stderr, "anythingd config error: %s\n", error);
+    return 2;
+  }
+  if (anything_audit_validate_startup(&state.config, error, sizeof(error)) != 0) {
+    fprintf(stderr, "anythingd audit error: %s\n", error);
     return 2;
   }
   anything_approval_store_init(&state.approvals);

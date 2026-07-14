@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -49,6 +50,17 @@ int anything_transport_peer_identity(int fd, anything_identity *identity, char *
   identity->uid = cred.uid;
   identity->gid = cred.gid;
   identity->pid = cred.pid;
+  return 0;
+}
+
+int anything_transport_set_read_timeout(int fd, int timeout_ms, char *error, size_t error_len) {
+  struct timeval timeout;
+  timeout.tv_sec = timeout_ms / 1000;
+  timeout.tv_usec = (timeout_ms % 1000) * 1000;
+  if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0) {
+    snprintf(error, error_len, "SO_RCVTIMEO failed: %s", strerror(errno));
+    return -1;
+  }
   return 0;
 }
 

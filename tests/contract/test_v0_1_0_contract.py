@@ -29,14 +29,14 @@ REQUIRED_FILES = [
 
 REQUIRED_SNIPPETS = {
     "CMakeLists.txt": [
-        "VERSION 0.1.0",
+        "VERSION 0.1.1",
         "C_STANDARD 11",
         "anythingd",
         "anythingctl",
     ],
     "include/anything/config.h": [
         "ANYTHING_VERSION",
-        "v0.1.0",
+        "v0.1.1",
         "max_request_bytes",
         "approval_ttl_seconds",
     ],
@@ -121,4 +121,4 @@ if __name__ == "__main__":
     test_required_files_exist()
     test_required_contract_snippets_exist()
     test_no_deferred_tool_surface_in_v0_1_0()
-    print("v0.1.0 contract tests passed")
+    print("v0.1.1 contract tests passed")
